@@ -31,6 +31,7 @@ HEADER_IMAGE_FILE = "images.jpg"
 WINDOW_ICON_FILE = "DotA2MinimapIcons_AgADagwAAsd2IVA.png"
 EXE_ICON_FILE = "cusini_royal_video_tool.ico"
 DOTA_LOGO_FILE = "dota2-logo.png"
+RETRO_WATERMARK_FILE = "retro-watermark.png"
 DEFAULT_TRIM_DURATION = 60.0
 
 
@@ -112,8 +113,8 @@ COMPRESSION_PROFILES = [
     ),
     CompressionProfile(
         title="Квадрат из 2000-х",
-        description="Центральный квадрат 480x480, 12 FPS и нарочито шакальное качество.",
-        crf=40,
+        description="Квадрат 480x480, 12 FPS, ретро-качество и watermark в стиле Bandicam.",
+        crf=36,
         preset="veryfast",
         width=None,
         audio_bitrate="32k",
@@ -328,20 +329,40 @@ def build_compress_command(
         "-stats",
         "-i",
         str(input_path),
+    ]
+
+    is_retro_square = getattr(args, "retro_square", False)
+    if is_retro_square:
+        command.extend(
+            [
+                "-i",
+                str(resource_path(RETRO_WATERMARK_FILE)),
+                "-filter_complex",
+                (
+                    "[0:v]crop=min(iw\\,ih):min(iw\\,ih),"
+                    "scale=480:480:flags=neighbor,fps=12[base];"
+                    "[base][1:v]overlay=(W-w)/2:18:format=auto[vout]"
+                ),
+                "-map",
+                "[vout]",
+                "-map",
+                "0:a?",
+            ]
+        )
+
+    command.extend(
+        [
         "-c:v",
         "libx264",
         "-preset",
         args.preset,
         "-crf",
         str(args.crf),
-    ]
+        ]
+    )
 
-    if getattr(args, "retro_square", False):
-        retro_filter = (
-            "crop=min(iw\\,ih):min(iw\\,ih),"
-            "scale=480:480:flags=neighbor,fps=12"
-        )
-        command.extend(["-vf", retro_filter, "-pix_fmt", "yuv420p"])
+    if is_retro_square:
+        command.extend(["-pix_fmt", "yuv420p"])
     elif args.width:
         command.extend(["-vf", f"scale={args.width}:-2"])
 
@@ -349,6 +370,8 @@ def build_compress_command(
         command.append("-an")
     else:
         command.extend(["-c:a", "aac", "-b:a", args.audio_bitrate])
+        if is_retro_square:
+            command.extend(["-af", "volume=1.2"])
 
     command.extend(["-movflags", "+faststart", str(output_path)])
     return command

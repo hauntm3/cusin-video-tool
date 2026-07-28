@@ -46,6 +46,7 @@ jobs:
           --name "CUSINI ROYAL VIDEO TOOL"
           --add-data "images.jpg:."
           --add-data "dota2-logo.png:."
+          --add-data "retro-watermark.png:."
           --add-data "DotA2MinimapIcons_AgADagwAAsd2IVA.png:."
           compress_video.py
       - name: Archive macOS application
@@ -70,12 +71,12 @@ jobs:
           gh release create "${GITHUB_REF_NAME}" release-files/* \
             --repo "${GITHUB_REPOSITORY}" \
             --title "CUSINI ROYAL VIDEO TOOL ${GITHUB_REF_NAME}" \
-            --notes "Квадратные видео в духе записей рабочего стола из 2000-х.
+            --notes "Улучшенный профиль квадратных видео из 2000-х.
 
           Изменения:
-          - новый профиль «Квадрат из 2000-х»;
-          - центральный квадрат 480x480 и частота 12 FPS;
-          - намеренно шакальное сжатие и звук 32 кбит/с;
-          - обновлённые фразы в карточке Пуджа;
+          - качество профиля улучшено на 10%: CRF 40 → 36;
+          - громкость звука увеличена на 20%;
+          - добавлен верхний watermark www.Bandicam.com;
+          - сохранены квадрат 480x480 и частота 12 FPS;
           - отдельные сборки для Windows и macOS;
           - локальная обработка видео без загрузки файлов в облако."
