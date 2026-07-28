@@ -1,0 +1,81 @@
+name: Build and publish release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt pyinstaller
+      - name: Build Windows application
+        run: python -m PyInstaller --noconfirm --clean VideoTool.spec
+      - name: Prepare Windows artifact
+        shell: pwsh
+        run: Move-Item dist/VideoTool.exe dist/CUSINI_ROYAL_VIDEO_TOOL.exe
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-build
+          path: dist/CUSINI_ROYAL_VIDEO_TOOL.exe
+
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt pyinstaller
+      - name: Build macOS application
+        run: >
+          python -m PyInstaller
+          --noconfirm
+          --clean
+          --windowed
+          --name "CUSINI ROYAL VIDEO TOOL"
+          --add-data "images.jpg:."
+          --add-data "dota2-logo.png:."
+          --add-data "DotA2MinimapIcons_AgADagwAAsd2IVA.png:."
+          compress_video.py
+      - name: Archive macOS application
+        run: ditto -c -k --sequesterRsrc --keepParent "dist/CUSINI ROYAL VIDEO TOOL.app" "dist/CUSINI_ROYAL_VIDEO_TOOL_macOS.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-build
+          path: dist/CUSINI_ROYAL_VIDEO_TOOL_macOS.zip
+
+  publish:
+    needs: [build-windows, build-macos]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: release-files
+          merge-multiple: true
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" release-files/* \
+            --repo "${GITHUB_REPOSITORY}" \
+            --title "CUSINI ROYAL VIDEO TOOL ${GITHUB_REF_NAME}" \
+            --notes "Новый интерфейс в стиле Dota 2.
+
+          Изменения:
+          - тёмный игровой дизайн с красными акцентами;
+          - официальный логотип Dota 2 в шапке;
+          - отдельная карточка с Пуджем;
+          - зелёная кнопка запуска;
+          - отдельные сборки для Windows и macOS;
+          - локальная обработка видео без загрузки файлов в облако."

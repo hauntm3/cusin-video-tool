@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Cusini Dota UI Preview</title>
+<style>
+*{box-sizing:border-box} :root{--bg:#080b0d;--top:#0c1115;--panel:#10161b;--inset:#0b1014;--line:#283138;--text:#ddd9d0;--muted:#8d9191;--red:#c8442d;--green:#4d702c;--cyan:#9fc4d1}
+body{margin:0;background:#030506;color:var(--text);font:14px/1.45 "Segoe UI",sans-serif}
+.app{width:1120px;height:760px;margin:auto;background:radial-gradient(circle at 93% 90%,#3a130d 0,transparent 25%),var(--bg);overflow:hidden;border:1px solid #20272c}
+header{height:104px;background:linear-gradient(100deg,#0b1014,#10171c);padding:16px 24px 0;display:flex;align-items:flex-start}
+.mark{width:62px;height:62px;object-fit:contain}
+h1{font:34px Georgia;margin:11px 0 0 20px;letter-spacing:.06em;color:#eeeae0}
+.nav{margin-left:auto;align-self:flex-end;display:flex;height:39px;gap:28px;font-size:12px;letter-spacing:.08em;color:#8d9191}
+.nav b{color:#eeeae0;border-bottom:2px solid var(--red);padding:0 9px 15px}
+.accent{height:2px;background:linear-gradient(90deg,var(--red),#43150f 40%,transparent)}
+.main{height:654px;padding:18px 20px;display:grid;grid-template-columns:2.15fr 1fr;gap:12px}
+.panel{background:linear-gradient(135deg,rgba(18,25,30,.97),rgba(10,15,18,.98));border:1px solid #252e34;box-shadow:inset 0 0 28px rgba(0,0,0,.35);padding:20px}
+.section{font:16px Georgia;color:var(--cyan);letter-spacing:.04em;margin-bottom:10px}
+.inset{background:rgba(6,10,12,.7);border:1px solid #29343b;padding:15px;margin-bottom:16px}
+.row{display:flex;gap:10px}.field,.select{height:42px;border:1px solid #303941;background:#080c0f;color:#777f82;display:flex;align-items:center;padding:0 13px;flex:1}
+button{height:42px;padding:0 20px;background:linear-gradient(#20292f,#11171b);color:#d7d4cc;border:1px solid #3a464d;font-weight:700;letter-spacing:.04em}
+.meta{font-size:12px;color:var(--muted);margin-top:9px}.tabs{display:flex;border-bottom:1px solid #293239;margin-bottom:12px}
+.tab{padding:10px 22px;color:#888d8d;font-size:12px;letter-spacing:.08em}.tab.active{color:#eee9df;border-bottom:2px solid var(--red)}
+.settings{display:grid;grid-template-columns:1fr 220px;gap:12px}.settings .left{display:flex;flex-direction:column;gap:9px}
+.feature{border:1px solid #283239;background:radial-gradient(circle at 100% 100%,#32130d,transparent 60%),#0c1114;padding:13px;text-align:center}
+.feature img{width:178px;height:94px;object-fit:cover;border:1px solid #39443f}.feature b{display:block;margin-top:8px;font:14px Georgia}
+.profile{font-size:12px;color:var(--muted)}.output{margin-top:14px}.launch{width:48%;display:block;margin:16px auto 0;background:linear-gradient(#5e8338,#385523);border:1px solid #789b50;font:16px Georgia;color:#f1f1e8}
+aside .pudge{width:100%;height:172px;object-fit:cover;border:1px solid #394039;box-shadow:0 0 24px rgba(67,126,42,.15)}
+.approve{text-align:center;margin:9px 0 17px}.approve b{font:16px Georgia;color:#cbd7c5}.approve span{display:block;color:var(--muted);font-size:12px;margin-top:4px}
+.status{border:1px solid #283239;background:#0a0f12;padding:13px;color:#919897;margin:8px 0}.bar{height:3px;background:#0a0e10;margin:12px 0 18px}.bar i{display:block;width:34%;height:100%;background:var(--red)}
+.log{height:170px;background:#080c0f;border:1px solid #252f34;padding:12px;color:#767e80;font:12px/1.8 Consolas,monospace}
+.footer{text-align:center;color:#777d7d;font-size:11px;letter-spacing:.12em;margin-top:12px}
+</style>
+</head>
+<body>
+<div class="app">
+  <header><img class="mark" src="dota2-logo.png" alt="Dota 2"><h1>VIDEO COMPRESSOR</h1><div class="nav"><b>КОМПРЕССОР</b><span>ЛОКАЛЬНО</span><span>БЕЗ ЛИМИТОВ</span></div></header>
+  <div class="accent"></div>
+  <div class="main">
+    <section class="panel">
+      <div class="section">ВЫБЕРИТЕ ВИДЕО</div>
+      <div class="inset"><div class="row"><div class="field">Перетащите видео или выберите файл</div><button>ВЫБРАТЬ ФАЙЛ</button></div><div class="meta">MP4, MOV, MKV, AVI, WEBM и другие форматы</div></div>
+      <div class="section">НАСТРОЙКИ ОБРАБОТКИ</div>
+      <div class="tabs"><div class="tab active">СЖАТИЕ</div><div class="tab">ОБРЕЗКА</div></div>
+      <div class="settings"><div class="left"><div class="select">Стандартное сжатие <span style="margin-left:auto">⌄</span></div><b>Оптимальный баланс размера и качества</b><div class="profile">Примерно минус 35–55% от веса. Подходит для большинства видео.</div></div><div class="feature"><img src="images.jpg"><b>Плотное сжатие</b><div class="profile">Меньше размер. Та же ярость.</div></div></div>
+      <div class="section output">РЕЗУЛЬТАТ</div>
+      <div class="inset"><div class="row"><div class="field">Путь будет выбран автоматически</div><button>АВТО</button><button>ОБЗОР</button></div></div>
+      <button class="launch">СЖАТЬ ВИДЕО</button>
+      <div class="footer">100% ЛОКАЛЬНО · БЕЗ ВОДЯНЫХ ЗНАКОВ · БЕЗ ЛИМИТОВ</div>
+    </section>
+    <aside class="panel">
+      <div class="section">ПУДЖ ОДОБРЯЕТ</div>
+      <img class="pudge" src="images.jpg">
+      <div class="approve"><b>Свежая нарезка</b><span>Файлы не покидают ваш компьютер</span></div>
+      <div class="section">СТАТУС</div>
+      <div class="status">Выберите видеофайл и нужное действие.</div><div class="bar"><i></i></div>
+      <div class="section">ЖУРНАЛ</div>
+      <div class="log">Video Compressor готов к работе.<br><br>→ выберите видео<br>→ настройте режим<br>→ запустите обработку</div>
+    </aside>
+  </div>
+</div>
+</body>
+</html>

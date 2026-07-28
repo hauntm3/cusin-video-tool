@@ -30,6 +30,7 @@ APP_TITLE = "CUSINI ROYAL VIDEO TOOL"
 HEADER_IMAGE_FILE = "images.jpg"
 WINDOW_ICON_FILE = "DotA2MinimapIcons_AgADagwAAsd2IVA.png"
 EXE_ICON_FILE = "cusini_royal_video_tool.ico"
+DOTA_LOGO_FILE = "dota2-logo.png"
 DEFAULT_TRIM_DURATION = 60.0
 
 
@@ -786,8 +787,8 @@ if tk is not None and ttk is not None and filedialog is not None and messagebox 
         def __init__(self, root: tk.Tk) -> None:
             self.root = root
             self.root.title(APP_TITLE)
-            self.root.geometry("980x720")
-            self.root.minsize(880, 660)
+            self.root.geometry("1180x780")
+            self.root.minsize(1040, 700)
 
             self.selected_input: Path | None = None
             self.last_output_path: Path | None = None
@@ -795,6 +796,7 @@ if tk is not None and ttk is not None and filedialog is not None and messagebox 
             self.worker_thread: threading.Thread | None = None
             self.is_busy = False
             self.header_photo: object | None = None
+            self.dota_logo_photo: object | None = None
             self.window_icon_photo: object | None = None
             self.trim_duration = DEFAULT_TRIM_DURATION
             self._syncing_trim_controls = False
@@ -823,23 +825,162 @@ if tk is not None and ttk is not None and filedialog is not None and messagebox 
 
         def _configure_style(self) -> None:
             style = ttk.Style()
-            for theme_name in ("vista", "xpnative", "clam"):
-                if theme_name in style.theme_names():
-                    style.theme_use(theme_name)
-                    break
+            style.theme_use("clam")
 
-            style.configure("Title.TLabel", font=("Segoe UI", 18, "bold"))
-            style.configure("Hint.TLabel", foreground="#505050")
-            style.configure("Section.TLabelframe", padding=12)
-            style.configure("ProfileTitle.TLabel", font=("Segoe UI", 11, "bold"))
-            style.configure("Value.TLabel", font=("Segoe UI", 10, "bold"))
+            self.colors = {
+                "bg": "#080B0D",
+                "top": "#0C1115",
+                "panel": "#10161B",
+                "panel_alt": "#0B1014",
+                "border": "#283138",
+                "text": "#DDD9D0",
+                "muted": "#8D9191",
+                "red": "#C8442D",
+                "red_hover": "#E4583E",
+                "green": "#4D702C",
+                "green_hover": "#608A37",
+                "cyan": "#9FC4D1",
+            }
+            colors = self.colors
+            self.root.configure(background=colors["bg"])
+
+            style.configure(".", background=colors["bg"], foreground=colors["text"], font=("Segoe UI", 10))
+            style.configure("App.TFrame", background=colors["bg"])
+            style.configure("Top.TFrame", background=colors["top"])
+            style.configure("Panel.TFrame", background=colors["panel"])
+            style.configure("Inset.TFrame", background=colors["panel_alt"])
+            style.configure("Title.TLabel", background=colors["top"], foreground="#EEEAE0", font=("Georgia", 24))
+            style.configure(
+                "Brand.TLabel",
+                background=colors["red"],
+                foreground="#17100D",
+                font=("Georgia", 24, "bold"),
+                padding=(14, 8),
+            )
+            style.configure(
+                "Nav.TLabel",
+                background=colors["top"],
+                foreground=colors["muted"],
+                font=("Segoe UI", 9, "bold"),
+            )
+            style.configure(
+                "NavActive.TLabel",
+                background=colors["top"],
+                foreground="#F1E9DC",
+                font=("Segoe UI", 9, "bold"),
+            )
+            style.configure(
+                "SectionTitle.TLabel",
+                background=colors["panel"],
+                foreground=colors["cyan"],
+                font=("Georgia", 12),
+            )
+            style.configure(
+                "Body.TLabel",
+                background=colors["panel"],
+                foreground=colors["text"],
+            )
+            style.configure("Hint.TLabel", background=colors["panel"], foreground=colors["muted"])
+            style.configure(
+                "ProfileTitle.TLabel",
+                background=colors["panel"],
+                foreground="#D8D3C8",
+                font=("Segoe UI", 10, "bold"),
+            )
+            style.configure(
+                "Value.TLabel",
+                background=colors["panel"],
+                foreground=colors["cyan"],
+                font=("Segoe UI", 10, "bold"),
+            )
+            style.configure(
+                "Dota.TButton",
+                background="#171E23",
+                foreground=colors["text"],
+                bordercolor="#374149",
+                lightcolor="#374149",
+                darkcolor="#06090B",
+                padding=(16, 10),
+                font=("Segoe UI", 9, "bold"),
+            )
+            style.map("Dota.TButton", background=[("active", "#222C33"), ("disabled", "#11161A")])
+            style.configure(
+                "Primary.TButton",
+                background=colors["green"],
+                foreground="#F1F1E8",
+                bordercolor="#759A48",
+                lightcolor="#759A48",
+                darkcolor="#253B18",
+                padding=(22, 13),
+                font=("Georgia", 12, "bold"),
+            )
+            style.map(
+                "Primary.TButton",
+                background=[("active", colors["green_hover"]), ("disabled", "#293024")],
+                foreground=[("disabled", "#777C73")],
+            )
+            style.configure(
+                "TEntry",
+                fieldbackground=colors["panel_alt"],
+                foreground=colors["text"],
+                insertcolor=colors["text"],
+                bordercolor=colors["border"],
+                lightcolor=colors["border"],
+                darkcolor="#030506",
+                padding=9,
+            )
+            style.configure(
+                "TCombobox",
+                fieldbackground=colors["panel_alt"],
+                background=colors["panel_alt"],
+                foreground=colors["text"],
+                arrowcolor=colors["muted"],
+                bordercolor=colors["border"],
+                lightcolor=colors["border"],
+                darkcolor="#030506",
+                padding=7,
+            )
+            style.map(
+                "TCombobox",
+                fieldbackground=[("readonly", colors["panel_alt"])],
+                foreground=[("readonly", colors["text"])],
+                selectbackground=[("readonly", colors["panel_alt"])],
+                selectforeground=[("readonly", colors["text"])],
+            )
+            style.configure("TNotebook", background=colors["panel"], borderwidth=0, tabmargins=(0, 0, 0, 12))
+            style.configure(
+                "TNotebook.Tab",
+                background=colors["top"],
+                foreground=colors["muted"],
+                borderwidth=0,
+                padding=(22, 10),
+                font=("Segoe UI", 9, "bold"),
+            )
+            style.map(
+                "TNotebook.Tab",
+                background=[("selected", colors["panel"])],
+                foreground=[("selected", "#F1E9DC")],
+            )
+            style.configure(
+                "Horizontal.TScale",
+                background=colors["panel"],
+                troughcolor=colors["panel_alt"],
+            )
+            style.configure(
+                "Horizontal.TProgressbar",
+                background=colors["red"],
+                troughcolor=colors["panel_alt"],
+                borderwidth=0,
+                thickness=3,
+            )
 
         def _load_assets(self) -> None:
             self.window_icon_photo = self._load_photo(WINDOW_ICON_FILE, (96, 96))
             if self.window_icon_photo is not None:
                 self.root.iconphoto(True, self.window_icon_photo)
 
-            self.header_photo = self._load_photo(HEADER_IMAGE_FILE, (279, 181))
+            self.header_photo = self._load_photo(HEADER_IMAGE_FILE, (260, 168))
+            self.dota_logo_photo = self._load_photo(DOTA_LOGO_FILE, (62, 62))
 
         def _load_photo(self, filename: str, size: tuple[int, int]) -> object | None:
             asset_path = resource_path(filename)
@@ -851,131 +992,179 @@ if tk is not None and ttk is not None and filedialog is not None and messagebox 
             return ImageTk.PhotoImage(resized)
 
         def _build_ui(self) -> None:
-            main = ttk.Frame(self.root, padding=16)
-            main.pack(fill="both", expand=True)
+            colors = self.colors
+            shell = ttk.Frame(self.root, style="App.TFrame")
+            shell.pack(fill="both", expand=True)
 
-            header = ttk.Frame(main)
+            header = ttk.Frame(shell, padding=(24, 15), style="Top.TFrame")
             header.pack(fill="x")
-            header.columnconfigure(0, weight=1)
-
-            title_block = ttk.Frame(header)
-            title_block.grid(row=0, column=0, sticky="nw", padx=(0, 16))
-            ttk.Label(title_block, text=APP_TITLE, style="Title.TLabel").pack(anchor="w")
-            ttk.Label(
-                title_block,
-                text="Выберите файл через стандартный проводник Windows и запускайте сжатие или обрезку одной кнопкой.",
-                style="Hint.TLabel",
-                wraplength=560,
-                justify="left",
-            ).pack(anchor="w", pady=(6, 0))
-
-            if self.header_photo is not None:
-                ttk.Label(header, image=self.header_photo).grid(row=0, column=1, sticky="ne")
-            else:
-                ttk.Label(
+            if self.dota_logo_photo is not None:
+                tk.Label(
                     header,
-                    text="CUSINI\nROYAL",
-                    style="ProfileTitle.TLabel",
-                    justify="center",
-                    anchor="center",
-                    width=18,
-                ).grid(row=0, column=1, sticky="ne")
+                    image=self.dota_logo_photo,
+                    background=colors["top"],
+                    borderwidth=0,
+                    highlightthickness=0,
+                ).pack(side="left")
+            ttk.Label(header, text="VIDEO  COMPRESSOR", style="Title.TLabel").pack(
+                side="left", padx=(18, 0)
+            )
 
-            file_frame = ttk.LabelFrame(main, text="Исходный файл", style="Section.TLabelframe")
-            file_frame.pack(fill="x", pady=(16, 12))
-            file_frame.columnconfigure(0, weight=1)
+            nav = ttk.Frame(header, style="Top.TFrame")
+            nav.pack(side="right", anchor="s", pady=(14, 0))
+            ttk.Label(nav, text="КОМПРЕССОР", style="NavActive.TLabel").pack(side="left", padx=14)
+            ttk.Label(nav, text="ЛОКАЛЬНО  •  БЕЗ ЛИМИТОВ", style="Nav.TLabel").pack(side="left", padx=14)
 
-            input_entry = ttk.Entry(file_frame, textvariable=self.input_path_var, state="readonly")
-            input_entry.grid(row=0, column=0, sticky="ew", padx=(0, 8))
+            red_line = tk.Frame(shell, background=colors["red"], height=2)
+            red_line.pack(fill="x")
 
-            browse_button = ttk.Button(file_frame, text="Выбрать файл...", command=self.choose_input_file)
-            browse_button.grid(row=0, column=1, sticky="ew")
+            main = ttk.Frame(shell, padding=(20, 18), style="App.TFrame")
+            main.pack(fill="both", expand=True)
+            main.columnconfigure(0, weight=7)
+            main.columnconfigure(1, weight=3)
+            main.rowconfigure(0, weight=1)
+
+            workspace = ttk.Frame(main, padding=20, style="Panel.TFrame")
+            workspace.grid(row=0, column=0, sticky="nsew", padx=(0, 12))
+            workspace.columnconfigure(0, weight=1)
+
+            ttk.Label(workspace, text="ВЫБЕРИТЕ ВИДЕО", style="SectionTitle.TLabel").grid(
+                row=0, column=0, sticky="w"
+            )
+            file_panel = ttk.Frame(workspace, padding=16, style="Inset.TFrame")
+            file_panel.grid(row=1, column=0, sticky="ew", pady=(10, 16))
+            file_panel.columnconfigure(0, weight=1)
+            input_entry = ttk.Entry(file_panel, textvariable=self.input_path_var, state="readonly")
+            input_entry.grid(row=0, column=0, sticky="ew", padx=(0, 10))
+
+            browse_button = ttk.Button(
+                file_panel,
+                text="ВЫБРАТЬ ФАЙЛ",
+                command=self.choose_input_file,
+                style="Dota.TButton",
+            )
+            browse_button.grid(row=0, column=1)
             self.interactive_widgets.append(browse_button)
-
             ttk.Label(
-                file_frame,
+                file_panel,
                 textvariable=self.input_info_var,
                 style="Hint.TLabel",
-                wraplength=860,
+                wraplength=610,
                 justify="left",
-            ).grid(row=1, column=0, columnspan=2, sticky="w", pady=(8, 0))
+            ).grid(row=1, column=0, columnspan=2, sticky="w", pady=(10, 0))
 
-            self.notebook = ttk.Notebook(main)
-            self.notebook.pack(fill="x")
+            ttk.Label(workspace, text="НАСТРОЙКИ ОБРАБОТКИ", style="SectionTitle.TLabel").grid(
+                row=2, column=0, sticky="w"
+            )
+            self.notebook = ttk.Notebook(workspace)
+            self.notebook.grid(row=3, column=0, sticky="ew", pady=(10, 14))
             self.notebook.bind("<<NotebookTabChanged>>", self._on_tab_changed)
 
-            self.compress_tab = ttk.Frame(self.notebook, padding=12)
-            self.trim_tab = ttk.Frame(self.notebook, padding=12)
-            self.notebook.add(self.compress_tab, text="Сжатие")
-            self.notebook.add(self.trim_tab, text="Обрезка")
-
+            self.compress_tab = ttk.Frame(self.notebook, padding=(6, 14), style="Panel.TFrame")
+            self.trim_tab = ttk.Frame(self.notebook, padding=(6, 14), style="Panel.TFrame")
+            self.notebook.add(self.compress_tab, text="СЖАТИЕ")
+            self.notebook.add(self.trim_tab, text="ОБРЕЗКА")
             self._build_compress_tab()
             self._build_trim_tab()
 
-            output_frame = ttk.LabelFrame(main, text="Результат", style="Section.TLabelframe")
-            output_frame.pack(fill="x", pady=(12, 12))
+            ttk.Label(workspace, text="РЕЗУЛЬТАТ", style="SectionTitle.TLabel").grid(
+                row=4, column=0, sticky="w"
+            )
+            output_frame = ttk.Frame(workspace, padding=14, style="Inset.TFrame")
+            output_frame.grid(row=5, column=0, sticky="ew", pady=(10, 14))
             output_frame.columnconfigure(0, weight=1)
-
             output_entry = ttk.Entry(output_frame, textvariable=self.output_path_var)
             output_entry.grid(row=0, column=0, sticky="ew", padx=(0, 8))
             self.interactive_widgets.append(output_entry)
 
-            auto_button = ttk.Button(output_frame, text="Авто", command=self.use_auto_output_path)
-            auto_button.grid(row=0, column=1, sticky="ew", padx=(0, 8))
+            auto_button = ttk.Button(
+                output_frame, text="АВТО", command=self.use_auto_output_path, style="Dota.TButton"
+            )
+            auto_button.grid(row=0, column=1, padx=(0, 8))
             self.interactive_widgets.append(auto_button)
-
-            output_button = ttk.Button(output_frame, text="Выбрать...", command=self.choose_output_file)
-            output_button.grid(row=0, column=2, sticky="ew")
+            output_button = ttk.Button(
+                output_frame, text="ОБЗОР", command=self.choose_output_file, style="Dota.TButton"
+            )
+            output_button.grid(row=0, column=2)
             self.interactive_widgets.append(output_button)
 
-            ttk.Label(
-                output_frame,
-                text="Можно оставить автогенерацию имени файла или выбрать путь вручную.",
-                style="Hint.TLabel",
-            ).grid(row=1, column=0, columnspan=3, sticky="w", pady=(8, 0))
-
-            actions = ttk.Frame(main)
-            actions.pack(fill="x", pady=(4, 12))
-
-            self.run_button = ttk.Button(actions, text="Запустить", command=self.start_operation)
-            self.run_button.pack(side="left")
+            actions = ttk.Frame(workspace, style="Panel.TFrame")
+            actions.grid(row=6, column=0, sticky="ew")
+            actions.columnconfigure(0, weight=1)
+            self.run_button = ttk.Button(
+                actions, text="ЗАПУСТИТЬ", command=self.start_operation, style="Primary.TButton"
+            )
+            self.run_button.grid(row=0, column=0, sticky="ew")
             self.interactive_widgets.append(self.run_button)
-
             self.open_folder_button = ttk.Button(
                 actions,
-                text="Открыть папку результата",
+                text="ОТКРЫТЬ ПАПКУ",
                 command=self.open_output_folder,
                 state="disabled",
+                style="Dota.TButton",
             )
-            self.open_folder_button.pack(side="left", padx=(8, 0))
+            self.open_folder_button.grid(row=0, column=1, padx=(10, 0))
 
+            sidebar = ttk.Frame(main, padding=16, style="Panel.TFrame")
+            sidebar.grid(row=0, column=1, sticky="nsew")
+            sidebar.columnconfigure(0, weight=1)
+            sidebar.rowconfigure(7, weight=1)
+
+            ttk.Label(sidebar, text="ПУДЖ ОДОБРЯЕТ", style="SectionTitle.TLabel").grid(
+                row=0, column=0, sticky="w"
+            )
+            if self.header_photo is not None:
+                tk.Label(
+                    sidebar,
+                    image=self.header_photo,
+                    background=colors["panel"],
+                    borderwidth=1,
+                    relief="solid",
+                    highlightbackground=colors["border"],
+                ).grid(row=1, column=0, sticky="ew", pady=(10, 8))
             ttk.Label(
-                actions,
+                sidebar,
+                text="Меньше размер. То же качество.\nНикакой загрузки в облако.",
+                style="ProfileTitle.TLabel",
+                justify="center",
+            ).grid(row=2, column=0, sticky="ew", pady=(0, 16))
+
+            ttk.Label(sidebar, text="СТАТУС", style="SectionTitle.TLabel").grid(
+                row=3, column=0, sticky="w"
+            )
+            ttk.Label(
+                sidebar,
                 textvariable=self.status_var,
                 style="Hint.TLabel",
-                wraplength=520,
-                justify="right",
-            ).pack(side="right")
+                wraplength=260,
+                justify="left",
+            ).grid(row=4, column=0, sticky="ew", pady=(8, 10))
+            self.progress = ttk.Progressbar(sidebar, mode="indeterminate")
+            self.progress.grid(row=5, column=0, sticky="ew", pady=(0, 16))
 
-            progress_frame = ttk.Frame(main)
-            progress_frame.pack(fill="x", pady=(0, 12))
-            self.progress = ttk.Progressbar(progress_frame, mode="indeterminate")
-            self.progress.pack(fill="x")
-
-            log_frame = ttk.LabelFrame(main, text="Журнал", style="Section.TLabelframe")
-            log_frame.pack(fill="both", expand=True)
+            ttk.Label(sidebar, text="ЖУРНАЛ", style="SectionTitle.TLabel").grid(
+                row=6, column=0, sticky="w", pady=(0, 8)
+            )
+            log_frame = ttk.Frame(sidebar, style="Inset.TFrame")
+            log_frame.grid(row=7, column=0, sticky="nsew")
             log_frame.columnconfigure(0, weight=1)
             log_frame.rowconfigure(0, weight=1)
-
             self.log_text = tk.Text(
                 log_frame,
-                height=12,
+                height=10,
                 wrap="word",
                 state="disabled",
-                font=("Consolas", 10),
+                font=("Consolas", 9),
+                background=colors["panel_alt"],
+                foreground="#A3A7A5",
+                insertbackground=colors["text"],
+                selectbackground=colors["red"],
+                relief="flat",
+                borderwidth=0,
+                padx=12,
+                pady=12,
             )
             self.log_text.grid(row=0, column=0, sticky="nsew")
-
             scrollbar = ttk.Scrollbar(log_frame, orient="vertical", command=self.log_text.yview)
             scrollbar.grid(row=0, column=1, sticky="ns")
             self.log_text.configure(yscrollcommand=scrollbar.set)
@@ -1136,9 +1325,9 @@ if tk is not None and ttk is not None and filedialog is not None and messagebox 
 
         def _update_run_button_text(self) -> None:
             if self._active_mode() == "compress":
-                self.run_button.configure(text="Сжать видео")
+                self.run_button.configure(text="СЖАТЬ ВИДЕО")
             else:
-                self.run_button.configure(text="Обрезать видео")
+                self.run_button.configure(text="ОБРЕЗАТЬ ВИДЕО")
 
         def _active_mode(self) -> str:
             current_tab = self.notebook.select()

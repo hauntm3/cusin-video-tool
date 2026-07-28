@@ -8,6 +8,7 @@ project_dir = Path(os.getcwd()).resolve()
 datas, binaries, hiddenimports = collect_all("imageio_ffmpeg")
 datas += [
     (str(project_dir / "images.jpg"), "."),
+    (str(project_dir / "dota2-logo.png"), "."),
     (str(project_dir / "DotA2MinimapIcons_AgADagwAAsd2IVA.png"), "."),
     (str(project_dir / "cusini_royal_video_tool.ico"), "."),
 ]
