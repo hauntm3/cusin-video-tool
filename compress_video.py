@@ -68,6 +68,7 @@ class CompressionProfile:
     width: int | None
     audio_bitrate: str
     no_audio: bool = False
+    retro_square: bool = False
 
 
 @dataclass(frozen=True)
@@ -108,6 +109,15 @@ COMPRESSION_PROFILES = [
         preset="slow",
         width=1280,
         audio_bitrate="64k",
+    ),
+    CompressionProfile(
+        title="Квадрат из 2000-х",
+        description="Центральный квадрат 480x480, 12 FPS и нарочито шакальное качество.",
+        crf=40,
+        preset="veryfast",
+        width=None,
+        audio_bitrate="32k",
+        retro_square=True,
     ),
 ]
 
@@ -326,7 +336,13 @@ def build_compress_command(
         str(args.crf),
     ]
 
-    if args.width:
+    if getattr(args, "retro_square", False):
+        retro_filter = (
+            "crop=min(iw\\,ih):min(iw\\,ih),"
+            "scale=480:480:flags=neighbor,fps=12"
+        )
+        command.extend(["-vf", retro_filter, "-pix_fmt", "yuv420p"])
+    elif args.width:
         command.extend(["-vf", f"scale={args.width}:-2"])
 
     if args.no_audio:
@@ -729,6 +745,7 @@ def run_interactive_compress() -> int:
         width=profile.width,
         audio_bitrate=profile.audio_bitrate,
         no_audio=profile.no_audio,
+        retro_square=profile.retro_square,
     )
 
     clear_screen()
@@ -1110,7 +1127,7 @@ if tk is not None and ttk is not None and filedialog is not None and messagebox 
             sidebar.columnconfigure(0, weight=1)
             sidebar.rowconfigure(7, weight=1)
 
-            ttk.Label(sidebar, text="ПУДЖ ОДОБРЯЕТ", style="SectionTitle.TLabel").grid(
+            ttk.Label(sidebar, text="ЗА ДЕЛО БЕРЕТСЯ МЯСНИК", style="SectionTitle.TLabel").grid(
                 row=0, column=0, sticky="w"
             )
             if self.header_photo is not None:
@@ -1124,7 +1141,7 @@ if tk is not None and ttk is not None and filedialog is not None and messagebox 
                 ).grid(row=1, column=0, sticky="ew", pady=(10, 8))
             ttk.Label(
                 sidebar,
-                text="Меньше размер. То же качество.\nНикакой загрузки в облако.",
+                text="Ой... это я что ли?",
                 style="ProfileTitle.TLabel",
                 justify="center",
             ).grid(row=2, column=0, sticky="ew", pady=(0, 16))
@@ -1430,6 +1447,7 @@ if tk is not None and ttk is not None and filedialog is not None and messagebox 
                 width=profile.width,
                 audio_bitrate=profile.audio_bitrate,
                 no_audio=profile.no_audio,
+                retro_square=profile.retro_square,
             )
 
         def _build_trim_args(self) -> argparse.Namespace:
