@@ -47,6 +47,9 @@ jobs:
           --add-data "images.jpg:."
           --add-data "dota2-logo.png:."
           --add-data "retro-watermark.png:."
+          --add-data "mode-compress.png:."
+          --add-data "mode-trim.png:."
+          --add-data "mode-retro.png:."
           --add-data "DotA2MinimapIcons_AgADagwAAsd2IVA.png:."
           compress_video.py
       - name: Archive macOS application
@@ -71,12 +74,14 @@ jobs:
           gh release create "${GITHUB_REF_NAME}" release-files/* \
             --repo "${GITHUB_REPOSITORY}" \
             --title "CUSINI ROYAL VIDEO TOOL ${GITHUB_REF_NAME}" \
-            --notes "Улучшенный профиль квадратных видео из 2000-х.
+            --notes "Новый карточный интерфейс и полная поддержка анимированных GIF.
 
           Изменения:
-          - качество профиля улучшено на 10%: CRF 40 → 36;
-          - громкость звука увеличена на 20%;
-          - добавлен верхний watermark www.Bandicam.com;
-          - сохранены квадрат 480x480 и частота 12 FPS;
+          - три крупные карточки режимов с игровыми иконками;
+          - отдельный таймлайн обрезки и динамическая кнопка запуска;
+          - сжатие и оптимизация палитры GIF;
+          - обрезка анимированных GIF по времени;
+          - квадратный GIF 480x480 с watermark;
+          - сохранение бесконечного цикла GIF;
           - отдельные сборки для Windows и macOS;
           - локальная обработка видео без загрузки файлов в облако."

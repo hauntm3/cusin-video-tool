@@ -10,6 +10,9 @@ datas += [
     (str(project_dir / "images.jpg"), "."),
     (str(project_dir / "dota2-logo.png"), "."),
     (str(project_dir / "retro-watermark.png"), "."),
+    (str(project_dir / "mode-compress.png"), "."),
+    (str(project_dir / "mode-trim.png"), "."),
+    (str(project_dir / "mode-retro.png"), "."),
     (str(project_dir / "DotA2MinimapIcons_AgADagwAAsd2IVA.png"), "."),
     (str(project_dir / "cusini_royal_video_tool.ico"), "."),
 ]

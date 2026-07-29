@@ -32,6 +32,11 @@ WINDOW_ICON_FILE = "DotA2MinimapIcons_AgADagwAAsd2IVA.png"
 EXE_ICON_FILE = "cusini_royal_video_tool.ico"
 DOTA_LOGO_FILE = "dota2-logo.png"
 RETRO_WATERMARK_FILE = "retro-watermark.png"
+MODE_ICON_FILES = {
+    "compress": "mode-compress.png",
+    "trim": "mode-trim.png",
+    "retro": "mode-retro.png",
+}
 DEFAULT_TRIM_DURATION = 60.0
 
 
@@ -46,6 +51,7 @@ VIDEO_EXTENSIONS = {
     ".flv",
     ".mpeg",
     ".mpg",
+    ".gif",
 }
 
 PRESET_OPTIONS = [
@@ -218,18 +224,26 @@ def add_trim_arguments(parser: argparse.ArgumentParser) -> None:
     )
 
 
+def expected_output_suffix(input_path: Path) -> str:
+    return ".gif" if input_path.suffix.lower() == ".gif" else ".mp4"
+
+
 def resolve_output_path(input_path: Path, output_path: Path | None, suffix: str) -> Path:
+    default_suffix = expected_output_suffix(input_path)
     if output_path:
-        return normalize_output_path(output_path)
-    return input_path.with_name(f"{input_path.stem}_{suffix}.mp4")
+        normalized = normalize_output_path(output_path, default_suffix=default_suffix)
+        if normalized.suffix.lower() != default_suffix:
+            normalized = normalized.with_suffix(default_suffix)
+        return normalized
+    return input_path.with_name(f"{input_path.stem}_{suffix}{default_suffix}")
 
 
-def normalize_output_path(output_path: Path) -> Path:
+def normalize_output_path(output_path: Path, *, default_suffix: str = ".mp4") -> Path:
     normalized = output_path.expanduser()
     if not normalized.is_absolute():
         normalized = Path.cwd() / normalized
     if not normalized.suffix:
-        normalized = normalized.with_suffix(".mp4")
+        normalized = normalized.with_suffix(default_suffix)
     return normalized.resolve()
 
 
@@ -332,6 +346,45 @@ def build_compress_command(
     ]
 
     is_retro_square = getattr(args, "retro_square", False)
+    is_gif = input_path.suffix.lower() == ".gif"
+    if is_gif:
+        if is_retro_square:
+            command.extend(["-i", str(resource_path(RETRO_WATERMARK_FILE))])
+            source_filters = (
+                "crop=min(iw\\,ih):min(iw\\,ih),"
+                "scale=480:480:flags=neighbor,fps=12[base];"
+                "[base][1:v]overlay=(W-w)/2:18:format=auto[prepared]"
+            )
+            max_colors = 96
+        else:
+            gif_fps = 20 if args.crf <= 28 else 15 if args.crf <= 32 else 12
+            filters = []
+            if args.width:
+                filters.append(f"scale={args.width}:-2:flags=lanczos")
+            filters.append(f"fps={gif_fps}")
+            source_filters = f"{','.join(filters)}[prepared]"
+            max_colors = 256 if args.crf <= 28 else 160 if args.crf <= 32 else 112
+
+        gif_filter = (
+            f"[0:v]{source_filters};"
+            "[prepared]split[palette_source][gif_source];"
+            f"[palette_source]palettegen=max_colors={max_colors}[palette];"
+            "[gif_source][palette]paletteuse=dither=bayer:bayer_scale=4[vout]"
+        )
+        command.extend(
+            [
+                "-filter_complex",
+                gif_filter,
+                "-map",
+                "[vout]",
+                "-an",
+                "-loop",
+                "0",
+                str(output_path),
+            ]
+        )
+        return command
+
     if is_retro_square:
         command.extend(
             [
@@ -378,6 +431,34 @@ def build_compress_command(
 
 
 def build_trim_command(input_path: Path, output_path: Path, start: float, end: float) -> list[str]:
+    if input_path.suffix.lower() == ".gif":
+        return [
+            get_ffmpeg_executable(),
+            "-y",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-stats",
+            "-ss",
+            format_seconds(start),
+            "-to",
+            format_seconds(end),
+            "-i",
+            str(input_path),
+            "-filter_complex",
+            (
+                "[0:v]split[palette_source][gif_source];"
+                "[palette_source]palettegen=max_colors=256[palette];"
+                "[gif_source][palette]paletteuse=dither=bayer:bayer_scale=4[vout]"
+            ),
+            "-map",
+            "[vout]",
+            "-an",
+            "-loop",
+            "0",
+            str(output_path),
+        ]
+
     return [
         get_ffmpeg_executable(),
         "-y",
@@ -628,7 +709,8 @@ def prompt_output_path(input_path: Path, suffix: str) -> Path:
     ).strip()
     if not raw_value:
         return default_path
-    return normalize_output_path(Path(raw_value.strip('"')))
+    default_suffix = expected_output_suffix(input_path)
+    return normalize_output_path(Path(raw_value.strip('"')), default_suffix=default_suffix)
 
 
 def find_video_files(directory: Path) -> list[Path]:
@@ -657,7 +739,7 @@ def prompt_video_file() -> Path | None:
         refresh_choice = len(files) + 2
 
         if not files:
-            print("Видео в текущей папке не найдены.")
+                print("Видео и GIF в текущей папке не найдены.")
 
         print(f"{manual_choice}. Ввести путь вручную")
         print(f"{refresh_choice}. Обновить список")
@@ -827,8 +909,8 @@ if tk is not None and ttk is not None and filedialog is not None and messagebox 
         def __init__(self, root: tk.Tk) -> None:
             self.root = root
             self.root.title(APP_TITLE)
-            self.root.geometry("1180x780")
-            self.root.minsize(1040, 700)
+            self.root.geometry("1320x900")
+            self.root.minsize(1180, 780)
 
             self.selected_input: Path | None = None
             self.last_output_path: Path | None = None
@@ -838,6 +920,7 @@ if tk is not None and ttk is not None and filedialog is not None and messagebox 
             self.header_photo: object | None = None
             self.dota_logo_photo: object | None = None
             self.window_icon_photo: object | None = None
+            self.mode_photos: dict[str, object] = {}
             self.trim_duration = DEFAULT_TRIM_DURATION
             self._syncing_trim_controls = False
 
@@ -847,6 +930,7 @@ if tk is not None and ttk is not None and filedialog is not None and messagebox 
             self.status_var = tk.StringVar(value="Выберите видеофайл и нужное действие.")
             self.profile_var = tk.StringVar(value=COMPRESSION_PROFILES[1].title)
             self.profile_description_var = tk.StringVar()
+            self.operation_mode_var = tk.StringVar(value="compress")
             self.trim_start_var = tk.StringVar(value="0")
             self.trim_end_var = tk.StringVar(value="10")
             self.trim_start_scale_var = tk.DoubleVar(value=0)
@@ -854,6 +938,7 @@ if tk is not None and ttk is not None and filedialog is not None and messagebox 
             self.trim_duration_var = tk.StringVar(
                 value=f"Диапазон ползунков: 0-{format_seconds(DEFAULT_TRIM_DURATION)} сек"
             )
+            self.trim_selection_duration_var = tk.StringVar(value="ДЛИТЕЛЬНОСТЬ: 10 сек")
 
             self.interactive_widgets: list[object] = []
 
@@ -945,6 +1030,35 @@ if tk is not None and ttk is not None and filedialog is not None and messagebox 
             )
             style.map("Dota.TButton", background=[("active", "#222C33"), ("disabled", "#11161A")])
             style.configure(
+                "Mode.TButton",
+                background="#11171B",
+                foreground=colors["cyan"],
+                bordercolor="#374149",
+                lightcolor="#374149",
+                darkcolor="#06090B",
+                padding=(12, 18),
+                font=("Georgia", 11, "bold"),
+                anchor="center",
+                justify="center",
+            )
+            style.map("Mode.TButton", background=[("active", "#1B242A"), ("disabled", "#0E1215")])
+            style.configure(
+                "ModeActive.TButton",
+                background="#211511",
+                foreground="#F0DDD4",
+                bordercolor=colors["red_hover"],
+                lightcolor=colors["red_hover"],
+                darkcolor="#6B2115",
+                padding=(12, 18),
+                font=("Georgia", 11, "bold"),
+                anchor="center",
+                justify="center",
+            )
+            style.map(
+                "ModeActive.TButton",
+                background=[("active", "#2C1A15"), ("disabled", "#17110F")],
+            )
+            style.configure(
                 "Primary.TButton",
                 background=colors["green"],
                 foreground="#F1F1E8",
@@ -1021,6 +1135,11 @@ if tk is not None and ttk is not None and filedialog is not None and messagebox 
 
             self.header_photo = self._load_photo(HEADER_IMAGE_FILE, (260, 168))
             self.dota_logo_photo = self._load_photo(DOTA_LOGO_FILE, (62, 62))
+            self.mode_photos = {
+                mode: photo
+                for mode, filename in MODE_ICON_FILES.items()
+                if (photo := self._load_photo(filename, (82, 82))) is not None
+            }
 
         def _load_photo(self, filename: str, size: tuple[int, int]) -> object | None:
             asset_path = resource_path(filename)
@@ -1093,25 +1212,57 @@ if tk is not None and ttk is not None and filedialog is not None and messagebox 
                 justify="left",
             ).grid(row=1, column=0, columnspan=2, sticky="w", pady=(10, 0))
 
-            ttk.Label(workspace, text="НАСТРОЙКИ ОБРАБОТКИ", style="SectionTitle.TLabel").grid(
+            ttk.Label(workspace, text="ВЫБЕРИТЕ РЕЖИМ", style="SectionTitle.TLabel").grid(
                 row=2, column=0, sticky="w"
             )
-            self.notebook = ttk.Notebook(workspace)
-            self.notebook.grid(row=3, column=0, sticky="ew", pady=(10, 14))
-            self.notebook.bind("<<NotebookTabChanged>>", self._on_tab_changed)
+            mode_cards = ttk.Frame(workspace, style="Panel.TFrame")
+            mode_cards.grid(row=3, column=0, sticky="ew", pady=(10, 12))
+            for column in range(3):
+                mode_cards.columnconfigure(column, weight=1, uniform="mode")
 
-            self.compress_tab = ttk.Frame(self.notebook, padding=(6, 14), style="Panel.TFrame")
-            self.trim_tab = ttk.Frame(self.notebook, padding=(6, 14), style="Panel.TFrame")
-            self.notebook.add(self.compress_tab, text="СЖАТИЕ")
-            self.notebook.add(self.trim_tab, text="ОБРЕЗКА")
+            self.mode_buttons: dict[str, ttk.Button] = {}
+            mode_specs = [
+                ("compress", "СЖАТЬ ВИДЕО\n\nУменьшить размер файла"),
+                ("trim", "ОБРЕЗАТЬ ПО ВРЕМЕНИ\n\nОставить нужный фрагмент"),
+                ("retro", "КВАДРАТ ИЗ 2000-Х\n\n480×480 · 12 FPS · Bandicam"),
+            ]
+            for column, (mode, label) in enumerate(mode_specs):
+                button = ttk.Button(
+                    mode_cards,
+                    text=label,
+                    image=self.mode_photos.get(mode, ""),
+                    compound="top",
+                    command=lambda selected_mode=mode: self._select_operation_mode(selected_mode),
+                    style="Mode.TButton",
+                )
+                button.grid(
+                    row=0,
+                    column=column,
+                    sticky="nsew",
+                    padx=(0 if column == 0 else 5, 0 if column == 2 else 5),
+                )
+                self.mode_buttons[mode] = button
+                self.interactive_widgets.append(button)
+
+            self.settings_host = ttk.Frame(workspace, padding=(14, 12), style="Inset.TFrame")
+            self.settings_host.grid(row=4, column=0, sticky="ew", pady=(0, 14))
+            self.settings_host.columnconfigure(0, weight=1)
+
+            self.compress_tab = ttk.Frame(self.settings_host, style="Panel.TFrame")
+            self.trim_tab = ttk.Frame(self.settings_host, style="Panel.TFrame")
+            self.retro_tab = ttk.Frame(self.settings_host, style="Panel.TFrame")
+            self.compress_tab.grid(row=0, column=0, sticky="ew")
+            self.trim_tab.grid(row=0, column=0, sticky="ew")
+            self.retro_tab.grid(row=0, column=0, sticky="ew")
             self._build_compress_tab()
             self._build_trim_tab()
+            self._build_retro_tab()
 
             ttk.Label(workspace, text="РЕЗУЛЬТАТ", style="SectionTitle.TLabel").grid(
-                row=4, column=0, sticky="w"
+                row=5, column=0, sticky="w"
             )
             output_frame = ttk.Frame(workspace, padding=14, style="Inset.TFrame")
-            output_frame.grid(row=5, column=0, sticky="ew", pady=(10, 14))
+            output_frame.grid(row=6, column=0, sticky="ew", pady=(10, 14))
             output_frame.columnconfigure(0, weight=1)
             output_entry = ttk.Entry(output_frame, textvariable=self.output_path_var)
             output_entry.grid(row=0, column=0, sticky="ew", padx=(0, 8))
@@ -1129,7 +1280,7 @@ if tk is not None and ttk is not None and filedialog is not None and messagebox 
             self.interactive_widgets.append(output_button)
 
             actions = ttk.Frame(workspace, style="Panel.TFrame")
-            actions.grid(row=6, column=0, sticky="ew")
+            actions.grid(row=7, column=0, sticky="ew")
             actions.columnconfigure(0, weight=1)
             self.run_button = ttk.Button(
                 actions, text="ЗАПУСТИТЬ", command=self.start_operation, style="Primary.TButton"
@@ -1144,6 +1295,7 @@ if tk is not None and ttk is not None and filedialog is not None and messagebox 
                 style="Dota.TButton",
             )
             self.open_folder_button.grid(row=0, column=1, padx=(10, 0))
+            self._select_operation_mode("compress", refresh_output=False)
 
             sidebar = ttk.Frame(main, padding=16, style="Panel.TFrame")
             sidebar.grid(row=0, column=1, sticky="nsew")
@@ -1216,7 +1368,7 @@ if tk is not None and ttk is not None and filedialog is not None and messagebox 
             profile_combo = ttk.Combobox(
                 self.compress_tab,
                 textvariable=self.profile_var,
-                values=[profile.title for profile in COMPRESSION_PROFILES],
+                values=[profile.title for profile in COMPRESSION_PROFILES if not profile.retro_square],
                 state="readonly",
             )
             profile_combo.grid(row=0, column=1, sticky="ew")
@@ -1282,7 +1434,13 @@ if tk is not None and ttk is not None and filedialog is not None and messagebox 
                 self.trim_tab,
                 textvariable=self.trim_duration_var,
                 style="Value.TLabel",
-            ).grid(row=2, column=0, columnspan=3, sticky="w", pady=(6, 0))
+            ).grid(row=2, column=0, sticky="w", pady=(6, 0))
+
+            ttk.Label(
+                self.trim_tab,
+                textvariable=self.trim_selection_duration_var,
+                style="Value.TLabel",
+            ).grid(row=2, column=1, columnspan=2, sticky="e", pady=(6, 0))
 
             ttk.Label(
                 self.trim_tab,
@@ -1291,6 +1449,24 @@ if tk is not None and ttk is not None and filedialog is not None and messagebox 
                 wraplength=760,
                 justify="left",
             ).grid(row=3, column=0, columnspan=3, sticky="w", pady=(8, 0))
+
+        def _build_retro_tab(self) -> None:
+            self.retro_tab.columnconfigure(0, weight=1)
+            ttk.Label(
+                self.retro_tab,
+                text="ШАКАЛЬНАЯ ЗАПИСЬ РАБОЧЕГО СТОЛА",
+                style="ProfileTitle.TLabel",
+            ).grid(row=0, column=0, sticky="w")
+            ttk.Label(
+                self.retro_tab,
+                text=(
+                    "Центральный квадрат 480×480 · 12 FPS · звук +20% · "
+                    "watermark www.Bandicam.com"
+                ),
+                style="Hint.TLabel",
+                wraplength=720,
+                justify="left",
+            ).grid(row=1, column=0, sticky="w", pady=(8, 0))
 
         def _on_profile_changed(self, _event: object | None = None) -> None:
             self._refresh_profile_state()
@@ -1329,6 +1505,9 @@ if tk is not None and ttk is not None and filedialog is not None and messagebox 
             self.trim_end_scale_var.set(end)
             self.trim_start_var.set(format_seconds(start))
             self.trim_end_var.set(format_seconds(end))
+            self.trim_selection_duration_var.set(
+                f"ДЛИТЕЛЬНОСТЬ: {format_seconds(max(0.0, end - start))} сек"
+            )
             self._syncing_trim_controls = False
 
         def _on_trim_start_scale(self, raw_value: str) -> None:
@@ -1363,19 +1542,39 @@ if tk is not None and ttk is not None and filedialog is not None and messagebox 
             self._update_run_button_text()
             self._update_auto_output_path()
 
+        def _select_operation_mode(self, mode: str, *, refresh_output: bool = True) -> None:
+            self.operation_mode_var.set(mode)
+            target_frame = {
+                "compress": self.compress_tab,
+                "trim": self.trim_tab,
+                "retro": self.retro_tab,
+            }[mode]
+            target_frame.tkraise()
+
+            for button_mode, button in self.mode_buttons.items():
+                button.configure(
+                    style="ModeActive.TButton" if button_mode == mode else "Mode.TButton"
+                )
+
+            self._update_run_button_text()
+            if refresh_output:
+                self._update_auto_output_path()
+
         def _update_run_button_text(self) -> None:
-            if self._active_mode() == "compress":
+            mode = self._active_mode()
+            if mode == "compress":
                 self.run_button.configure(text="СЖАТЬ ВИДЕО")
-            else:
+            elif mode == "trim":
                 self.run_button.configure(text="ОБРЕЗАТЬ ВИДЕО")
+            else:
+                self.run_button.configure(text="СДЕЛАТЬ КВАДРАТ ИЗ 2000-Х")
 
         def _active_mode(self) -> str:
-            current_tab = self.notebook.select()
-            return "compress" if current_tab == str(self.compress_tab) else "trim"
+            return self.operation_mode_var.get()
 
         def _video_dialog_types(self) -> list[tuple[str, str]]:
             mask = " ".join(f"*{extension}" for extension in sorted(VIDEO_EXTENSIONS))
-            return [("Видео", mask), ("Все файлы", "*.*")]
+            return [("Видео и GIF", mask), ("GIF-анимации", "*.gif"), ("Все файлы", "*.*")]
 
         def choose_input_file(self) -> None:
             file_path = filedialog.askopenfilename(
@@ -1407,7 +1606,11 @@ if tk is not None and ttk is not None and filedialog is not None and messagebox 
             if self.selected_input is None:
                 return
 
-            suffix = "compressed" if self._active_mode() == "compress" else "trimmed"
+            suffix = {
+                "compress": "compressed",
+                "trim": "trimmed",
+                "retro": "square_2000s",
+            }[self._active_mode()]
             suggested = str(resolve_output_path(self.selected_input, None, suffix))
             current = self.output_path_var.get().strip()
 
@@ -1431,8 +1634,18 @@ if tk is not None and ttk is not None and filedialog is not None and messagebox 
             output_path = filedialog.asksaveasfilename(
                 parent=self.root,
                 title="Куда сохранить результат",
-                filetypes=[("MP4", "*.mp4"), ("Все файлы", "*.*")],
-                defaultextension=".mp4",
+                filetypes=(
+                    [("GIF", "*.gif"), ("Все файлы", "*.*")]
+                    if self.selected_input is not None
+                    and self.selected_input.suffix.lower() == ".gif"
+                    else [("MP4", "*.mp4"), ("Все файлы", "*.*")]
+                ),
+                defaultextension=(
+                    ".gif"
+                    if self.selected_input is not None
+                    and self.selected_input.suffix.lower() == ".gif"
+                    else ".mp4"
+                ),
                 initialdir=initial_dir,
                 initialfile=initial_file,
             )
@@ -1455,13 +1668,18 @@ if tk is not None and ttk is not None and filedialog is not None and messagebox 
             raw_value = self.output_path_var.get().strip().strip('"')
             if not raw_value:
                 return None
-            return normalize_output_path(Path(raw_value))
+            if self.selected_input is None:
+                return normalize_output_path(Path(raw_value))
+            return resolve_output_path(self.selected_input, Path(raw_value), "result")
 
         def _build_compress_args(self) -> argparse.Namespace:
             if self.selected_input is None:
                 raise ValueError("Сначала выберите видеофайл.")
 
-            profile = COMPRESSION_PROFILE_BY_TITLE[self.profile_var.get()]
+            if self._active_mode() == "retro":
+                profile = next(profile for profile in COMPRESSION_PROFILES if profile.retro_square)
+            else:
+                profile = COMPRESSION_PROFILE_BY_TITLE[self.profile_var.get()]
             return argparse.Namespace(
                 input=self.selected_input,
                 output=self._resolve_output_for_ui(),
@@ -1493,10 +1711,14 @@ if tk is not None and ttk is not None and filedialog is not None and messagebox 
                 return
 
             try:
-                if self._active_mode() == "compress":
+                if self._active_mode() in {"compress", "retro"}:
                     args = self._build_compress_args()
                     handler = process_compress
-                    start_message = "Запущено сжатие..."
+                    start_message = (
+                        "Запущен квадратный режим из 2000-х..."
+                        if self._active_mode() == "retro"
+                        else "Запущено сжатие..."
+                    )
                 else:
                     args = self._build_trim_args()
                     handler = process_trim
