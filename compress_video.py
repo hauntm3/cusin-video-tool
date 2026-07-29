@@ -26,7 +26,7 @@ except ImportError:
     ImageTk = None
 
 
-APP_TITLE = "CUSINI ROYAL VIDEO TOOL"
+APP_TITLE = "CUSINI-ROYALE TOOL"
 HEADER_IMAGE_FILE = "images.jpg"
 WINDOW_ICON_FILE = "DotA2MinimapIcons_AgADagwAAsd2IVA.png"
 EXE_ICON_FILE = "cusini_royal_video_tool.ico"
@@ -228,8 +228,14 @@ def expected_output_suffix(input_path: Path) -> str:
     return ".gif" if input_path.suffix.lower() == ".gif" else ".mp4"
 
 
-def resolve_output_path(input_path: Path, output_path: Path | None, suffix: str) -> Path:
-    default_suffix = expected_output_suffix(input_path)
+def resolve_output_path(
+    input_path: Path,
+    output_path: Path | None,
+    suffix: str,
+    *,
+    output_suffix: str | None = None,
+) -> Path:
+    default_suffix = output_suffix or expected_output_suffix(input_path)
     if output_path:
         normalized = normalize_output_path(output_path, default_suffix=default_suffix)
         if normalized.suffix.lower() != default_suffix:
@@ -346,7 +352,23 @@ def build_compress_command(
     ]
 
     is_retro_square = getattr(args, "retro_square", False)
-    is_gif = input_path.suffix.lower() == ".gif"
+    input_is_gif = input_path.suffix.lower() == ".gif"
+    is_gif = input_is_gif and output_path.suffix.lower() == ".gif"
+    output_width = getattr(args, "width", None)
+    output_height = getattr(args, "height", None)
+    keep_aspect = getattr(args, "keep_aspect", True)
+
+    scale_filter = ""
+    if output_width or output_height:
+        if output_width and output_height:
+            scale_filter = f"scale={output_width}:{output_height}"
+            if keep_aspect:
+                scale_filter += ":force_original_aspect_ratio=decrease"
+        elif output_width:
+            scale_filter = f"scale={output_width}:-2"
+        else:
+            scale_filter = f"scale=-2:{output_height}"
+
     if is_gif:
         if is_retro_square:
             command.extend(["-i", str(resource_path(RETRO_WATERMARK_FILE))])
@@ -357,13 +379,19 @@ def build_compress_command(
             )
             max_colors = 96
         else:
-            gif_fps = 20 if args.crf <= 28 else 15 if args.crf <= 32 else 12
+            gif_fps = getattr(
+                args, "gif_fps", 20 if args.crf <= 28 else 15 if args.crf <= 32 else 12
+            )
             filters = []
-            if args.width:
-                filters.append(f"scale={args.width}:-2:flags=lanczos")
+            if scale_filter:
+                filters.append(f"{scale_filter}:flags=lanczos")
             filters.append(f"fps={gif_fps}")
             source_filters = f"{','.join(filters)}[prepared]"
-            max_colors = 256 if args.crf <= 28 else 160 if args.crf <= 32 else 112
+            max_colors = getattr(
+                args,
+                "gif_colors",
+                256 if args.crf <= 28 else 160 if args.crf <= 32 else 112,
+            )
 
         gif_filter = (
             f"[0:v]{source_filters};"
@@ -414,10 +442,10 @@ def build_compress_command(
         ]
     )
 
-    if is_retro_square:
+    if is_retro_square or input_is_gif:
         command.extend(["-pix_fmt", "yuv420p"])
-    elif args.width:
-        command.extend(["-vf", f"scale={args.width}:-2"])
+    elif scale_filter:
+        command.extend(["-vf", scale_filter])
 
     if args.no_audio:
         command.append("-an")
@@ -568,6 +596,59 @@ def process_compress(args: argparse.Namespace, *, quiet: bool = False) -> Operat
 
     return OperationResult(
         action_name="Сжатие",
+        input_path=input_path,
+        output_path=output_path,
+        details=tuple(details),
+    )
+
+
+def process_optimize_gif(args: argparse.Namespace, *, quiet: bool = False) -> OperationResult:
+    try:
+        input_path = ensure_input_exists(args.input)
+        if input_path.suffix.lower() != ".gif":
+            raise ValueError("Режим оптимизации GIF принимает только файлы .gif.")
+        output_suffix = ".mp4" if args.gif_output_format == "MP4" else ".gif"
+        output_path = resolve_output_path(
+            input_path, args.output, "optimized", output_suffix=output_suffix
+        )
+        validate_output_path(input_path, output_path)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+    except (FileNotFoundError, ValueError) as exc:
+        raise OperationError(str(exc)) from exc
+
+    attempts = [(args.gif_fps, args.gif_colors)]
+    if output_suffix == ".gif" and args.target_size_mb:
+        attempts.extend(
+            (fps, colors)
+            for fps, colors in ((15, 128), (12, 96), (10, 64), (8, 48), (6, 32))
+            if (fps, colors) not in attempts
+        )
+
+    target_bytes = int(args.target_size_mb * 1024 * 1024) if args.target_size_mb else None
+    for fps, colors in attempts:
+        attempt_args = argparse.Namespace(**vars(args))
+        attempt_args.gif_fps = min(args.gif_fps, fps)
+        attempt_args.gif_colors = min(args.gif_colors, colors)
+        run_ffmpeg(
+            build_compress_command(attempt_args, input_path, output_path),
+            "Оптимизация GIF",
+            quiet=quiet,
+        )
+        if target_bytes is None or output_path.stat().st_size <= target_bytes:
+            break
+
+    details = [
+        f"GIF: {input_path.name}",
+        f"Формат результата: {output_suffix.removeprefix('.').upper()}",
+        f"Результат: {output_path.name}",
+        *compression_summary_lines(input_path, output_path),
+    ]
+    if target_bytes and output_path.stat().st_size > target_bytes:
+        details.append(
+            "Точный целевой вес недостижим с безопасными настройками; сохранён минимальный вариант."
+        )
+    return OperationResult(
+        action_name="Оптимизация GIF",
         input_path=input_path,
         output_path=output_path,
         details=tuple(details),
@@ -909,8 +990,8 @@ if tk is not None and ttk is not None and filedialog is not None and messagebox 
         def __init__(self, root: tk.Tk) -> None:
             self.root = root
             self.root.title(APP_TITLE)
-            self.root.geometry("1320x900")
-            self.root.minsize(1180, 780)
+            self.root.geometry("1180x780")
+            self.root.minsize(1060, 700)
 
             self.selected_input: Path | None = None
             self.last_output_path: Path | None = None
@@ -930,6 +1011,15 @@ if tk is not None and ttk is not None and filedialog is not None and messagebox 
             self.status_var = tk.StringVar(value="Выберите видеофайл и нужное действие.")
             self.profile_var = tk.StringVar(value=COMPRESSION_PROFILES[1].title)
             self.profile_description_var = tk.StringVar()
+            self.resize_mode_var = tk.StringVar(value="Исходный размер")
+            self.resize_width_var = tk.StringVar()
+            self.resize_height_var = tk.StringVar()
+            self.keep_aspect_var = tk.BooleanVar(value=True)
+            self.gif_size_var = tk.StringVar(value="480 px")
+            self.gif_fps_var = tk.StringVar(value="15")
+            self.gif_colors_var = tk.StringVar(value="128")
+            self.gif_target_mb_var = tk.StringVar()
+            self.gif_output_format_var = tk.StringVar(value="GIF")
             self.operation_mode_var = tk.StringVar(value="compress")
             self.trim_start_var = tk.StringVar(value="0")
             self.trim_end_var = tk.StringVar(value="10")
@@ -969,17 +1059,25 @@ if tk is not None and ttk is not None and filedialog is not None and messagebox 
             colors = self.colors
             self.root.configure(background=colors["bg"])
 
-            style.configure(".", background=colors["bg"], foreground=colors["text"], font=("Segoe UI", 10))
+            ui_font = ("Segoe UI", 10)
+            heading_font = ("Segoe UI Semibold", 12)
+            self.root.option_add("*Font", ui_font)
+            style.configure(".", background=colors["bg"], foreground=colors["text"], font=ui_font)
             style.configure("App.TFrame", background=colors["bg"])
             style.configure("Top.TFrame", background=colors["top"])
             style.configure("Panel.TFrame", background=colors["panel"])
             style.configure("Inset.TFrame", background=colors["panel_alt"])
-            style.configure("Title.TLabel", background=colors["top"], foreground="#EEEAE0", font=("Georgia", 24))
+            style.configure(
+                "Title.TLabel",
+                background=colors["top"],
+                foreground="#EEEAE0",
+                font=("Segoe UI Semibold", 22),
+            )
             style.configure(
                 "Brand.TLabel",
                 background=colors["red"],
                 foreground="#17100D",
-                font=("Georgia", 24, "bold"),
+                font=("Segoe UI Semibold", 22),
                 padding=(14, 8),
             )
             style.configure(
@@ -998,7 +1096,7 @@ if tk is not None and ttk is not None and filedialog is not None and messagebox 
                 "SectionTitle.TLabel",
                 background=colors["panel"],
                 foreground=colors["cyan"],
-                font=("Georgia", 12),
+                font=heading_font,
             )
             style.configure(
                 "Body.TLabel",
@@ -1006,6 +1104,41 @@ if tk is not None and ttk is not None and filedialog is not None and messagebox 
                 foreground=colors["text"],
             )
             style.configure("Hint.TLabel", background=colors["panel"], foreground=colors["muted"])
+            style.configure(
+                "Setting.TLabel",
+                background=colors["panel_alt"],
+                foreground=colors["text"],
+                font=ui_font,
+            )
+            style.configure(
+                "SettingHint.TLabel",
+                background=colors["panel_alt"],
+                foreground=colors["muted"],
+                font=("Segoe UI", 9),
+            )
+            style.configure(
+                "SettingTitle.TLabel",
+                background=colors["panel_alt"],
+                foreground="#D8D3C8",
+                font=("Segoe UI Semibold", 10),
+            )
+            style.configure(
+                "SettingValue.TLabel",
+                background=colors["panel_alt"],
+                foreground=colors["cyan"],
+                font=("Segoe UI Semibold", 10),
+            )
+            style.configure(
+                "Setting.TCheckbutton",
+                background=colors["panel_alt"],
+                foreground=colors["text"],
+                font=("Segoe UI", 9),
+            )
+            style.map(
+                "Setting.TCheckbutton",
+                background=[("active", colors["panel_alt"])],
+                foreground=[("disabled", colors["muted"])],
+            )
             style.configure(
                 "ProfileTitle.TLabel",
                 background=colors["panel"],
@@ -1037,7 +1170,7 @@ if tk is not None and ttk is not None and filedialog is not None and messagebox 
                 lightcolor="#374149",
                 darkcolor="#06090B",
                 padding=(12, 18),
-                font=("Georgia", 11, "bold"),
+                font=("Segoe UI Semibold", 10),
                 anchor="center",
                 justify="center",
             )
@@ -1050,7 +1183,7 @@ if tk is not None and ttk is not None and filedialog is not None and messagebox 
                 lightcolor=colors["red_hover"],
                 darkcolor="#6B2115",
                 padding=(12, 18),
-                font=("Georgia", 11, "bold"),
+                font=("Segoe UI Semibold", 10),
                 anchor="center",
                 justify="center",
             )
@@ -1066,7 +1199,7 @@ if tk is not None and ttk is not None and filedialog is not None and messagebox 
                 lightcolor="#759A48",
                 darkcolor="#253B18",
                 padding=(22, 13),
-                font=("Georgia", 12, "bold"),
+                font=("Segoe UI Semibold", 11),
             )
             style.map(
                 "Primary.TButton",
@@ -1133,12 +1266,12 @@ if tk is not None and ttk is not None and filedialog is not None and messagebox 
             if self.window_icon_photo is not None:
                 self.root.iconphoto(True, self.window_icon_photo)
 
-            self.header_photo = self._load_photo(HEADER_IMAGE_FILE, (260, 168))
+            self.header_photo = self._load_photo(HEADER_IMAGE_FILE, (330, 220))
             self.dota_logo_photo = self._load_photo(DOTA_LOGO_FILE, (62, 62))
             self.mode_photos = {
                 mode: photo
                 for mode, filename in MODE_ICON_FILES.items()
-                if (photo := self._load_photo(filename, (82, 82))) is not None
+                if (photo := self._load_photo(filename, (68, 68))) is not None
             }
 
         def _load_photo(self, filename: str, size: tuple[int, int]) -> object | None:
@@ -1165,25 +1298,20 @@ if tk is not None and ttk is not None and filedialog is not None and messagebox 
                     borderwidth=0,
                     highlightthickness=0,
                 ).pack(side="left")
-            ttk.Label(header, text="VIDEO  COMPRESSOR", style="Title.TLabel").pack(
+            ttk.Label(header, text="CUSINI-ROYALE TOOL", style="Title.TLabel").pack(
                 side="left", padx=(18, 0)
             )
-
-            nav = ttk.Frame(header, style="Top.TFrame")
-            nav.pack(side="right", anchor="s", pady=(14, 0))
-            ttk.Label(nav, text="КОМПРЕССОР", style="NavActive.TLabel").pack(side="left", padx=14)
-            ttk.Label(nav, text="ЛОКАЛЬНО  •  БЕЗ ЛИМИТОВ", style="Nav.TLabel").pack(side="left", padx=14)
 
             red_line = tk.Frame(shell, background=colors["red"], height=2)
             red_line.pack(fill="x")
 
-            main = ttk.Frame(shell, padding=(20, 18), style="App.TFrame")
+            main = ttk.Frame(shell, padding=(20, 14), style="App.TFrame")
             main.pack(fill="both", expand=True)
-            main.columnconfigure(0, weight=7)
-            main.columnconfigure(1, weight=3)
+            main.columnconfigure(0, weight=13)
+            main.columnconfigure(1, weight=7)
             main.rowconfigure(0, weight=1)
 
-            workspace = ttk.Frame(main, padding=20, style="Panel.TFrame")
+            workspace = ttk.Frame(main, padding=16, style="Panel.TFrame")
             workspace.grid(row=0, column=0, sticky="nsew", padx=(0, 12))
             workspace.columnconfigure(0, weight=1)
 
@@ -1217,20 +1345,23 @@ if tk is not None and ttk is not None and filedialog is not None and messagebox 
             )
             mode_cards = ttk.Frame(workspace, style="Panel.TFrame")
             mode_cards.grid(row=3, column=0, sticky="ew", pady=(10, 12))
-            for column in range(3):
+            for column in range(4):
                 mode_cards.columnconfigure(column, weight=1, uniform="mode")
 
             self.mode_buttons: dict[str, ttk.Button] = {}
             mode_specs = [
-                ("compress", "СЖАТЬ ВИДЕО\n\nУменьшить размер файла"),
-                ("trim", "ОБРЕЗАТЬ ПО ВРЕМЕНИ\n\nОставить нужный фрагмент"),
-                ("retro", "КВАДРАТ ИЗ 2000-Х\n\n480×480 · 12 FPS · Bandicam"),
+                ("compress", "СЖАТЬ ВИДЕО\nУменьшить размер"),
+                ("trim", "ОБРЕЗАТЬ\nПО ВРЕМЕНИ"),
+                ("retro", "КВАДРАТ\nИЗ 2000-Х"),
+                ("gif", "ОПТИМИЗИРОВАТЬ\nGIF"),
             ]
             for column, (mode, label) in enumerate(mode_specs):
                 button = ttk.Button(
                     mode_cards,
                     text=label,
-                    image=self.mode_photos.get(mode, ""),
+                    image=self.mode_photos.get(
+                        "compress" if mode == "gif" else mode, ""
+                    ),
                     compound="top",
                     command=lambda selected_mode=mode: self._select_operation_mode(selected_mode),
                     style="Mode.TButton",
@@ -1239,7 +1370,7 @@ if tk is not None and ttk is not None and filedialog is not None and messagebox 
                     row=0,
                     column=column,
                     sticky="nsew",
-                    padx=(0 if column == 0 else 5, 0 if column == 2 else 5),
+                    padx=(0 if column == 0 else 4, 0 if column == 3 else 4),
                 )
                 self.mode_buttons[mode] = button
                 self.interactive_widgets.append(button)
@@ -1248,15 +1379,14 @@ if tk is not None and ttk is not None and filedialog is not None and messagebox 
             self.settings_host.grid(row=4, column=0, sticky="ew", pady=(0, 14))
             self.settings_host.columnconfigure(0, weight=1)
 
-            self.compress_tab = ttk.Frame(self.settings_host, style="Panel.TFrame")
-            self.trim_tab = ttk.Frame(self.settings_host, style="Panel.TFrame")
-            self.retro_tab = ttk.Frame(self.settings_host, style="Panel.TFrame")
-            self.compress_tab.grid(row=0, column=0, sticky="ew")
-            self.trim_tab.grid(row=0, column=0, sticky="ew")
-            self.retro_tab.grid(row=0, column=0, sticky="ew")
+            self.compress_tab = ttk.Frame(self.settings_host, style="Inset.TFrame")
+            self.trim_tab = ttk.Frame(self.settings_host, style="Inset.TFrame")
+            self.retro_tab = ttk.Frame(self.settings_host, style="Inset.TFrame")
+            self.gif_tab = ttk.Frame(self.settings_host, style="Inset.TFrame")
             self._build_compress_tab()
             self._build_trim_tab()
             self._build_retro_tab()
+            self._build_gif_tab()
 
             ttk.Label(workspace, text="РЕЗУЛЬТАТ", style="SectionTitle.TLabel").grid(
                 row=5, column=0, sticky="w"
@@ -1300,7 +1430,6 @@ if tk is not None and ttk is not None and filedialog is not None and messagebox 
             sidebar = ttk.Frame(main, padding=16, style="Panel.TFrame")
             sidebar.grid(row=0, column=1, sticky="nsew")
             sidebar.columnconfigure(0, weight=1)
-            sidebar.rowconfigure(7, weight=1)
 
             ttk.Label(sidebar, text="ЗА ДЕЛО БЕРЕТСЯ МЯСНИК", style="SectionTitle.TLabel").grid(
                 row=0, column=0, sticky="w"
@@ -1313,7 +1442,7 @@ if tk is not None and ttk is not None and filedialog is not None and messagebox 
                     borderwidth=1,
                     relief="solid",
                     highlightbackground=colors["border"],
-                ).grid(row=1, column=0, sticky="ew", pady=(10, 8))
+                ).grid(row=1, column=0, sticky="nsew", pady=(10, 8))
             ttk.Label(
                 sidebar,
                 text="Ой... это я что ли?",
@@ -1338,15 +1467,16 @@ if tk is not None and ttk is not None and filedialog is not None and messagebox 
                 row=6, column=0, sticky="w", pady=(0, 8)
             )
             log_frame = ttk.Frame(sidebar, style="Inset.TFrame")
-            log_frame.grid(row=7, column=0, sticky="nsew")
+            log_frame.grid(row=7, column=0, sticky="ew")
             log_frame.columnconfigure(0, weight=1)
             log_frame.rowconfigure(0, weight=1)
             self.log_text = tk.Text(
                 log_frame,
-                height=10,
+                width=32,
+                height=6,
                 wrap="word",
                 state="disabled",
-                font=("Consolas", 9),
+                font=("Cascadia Mono", 9),
                 background=colors["panel_alt"],
                 foreground="#A3A7A5",
                 insertbackground=colors["text"],
@@ -1364,7 +1494,9 @@ if tk is not None and ttk is not None and filedialog is not None and messagebox 
         def _build_compress_tab(self) -> None:
             self.compress_tab.columnconfigure(1, weight=1)
 
-            ttk.Label(self.compress_tab, text="Пресет:").grid(row=0, column=0, sticky="w")
+            ttk.Label(self.compress_tab, text="Пресет:", style="Setting.TLabel").grid(
+                row=0, column=0, sticky="w"
+            )
             profile_combo = ttk.Combobox(
                 self.compress_tab,
                 textvariable=self.profile_var,
@@ -1378,7 +1510,7 @@ if tk is not None and ttk is not None and filedialog is not None and messagebox 
             ttk.Label(
                 self.compress_tab,
                 textvariable=self.profile_description_var,
-                style="ProfileTitle.TLabel",
+                style="SettingTitle.TLabel",
                 wraplength=760,
                 justify="left",
             ).grid(row=1, column=0, columnspan=2, sticky="w", pady=(10, 6))
@@ -1386,15 +1518,60 @@ if tk is not None and ttk is not None and filedialog is not None and messagebox 
             ttk.Label(
                 self.compress_tab,
                 text="Процент сжатия примерный и зависит от исходного видео. Уже сильно сжатые ролики могут уменьшиться слабее.",
-                style="Hint.TLabel",
+                style="SettingHint.TLabel",
                 wraplength=760,
                 justify="left",
             ).grid(row=2, column=0, columnspan=2, sticky="w")
 
+            resize_row = ttk.Frame(self.compress_tab, style="Inset.TFrame")
+            resize_row.grid(row=3, column=0, columnspan=2, sticky="ew", pady=(10, 0))
+            resize_row.columnconfigure(5, weight=1)
+            ttk.Label(resize_row, text="Размер:", style="Setting.TLabel").grid(
+                row=0, column=0, sticky="w"
+            )
+            resize_combo = ttk.Combobox(
+                resize_row,
+                textvariable=self.resize_mode_var,
+                values=("Исходный размер", "Задать вручную"),
+                state="readonly",
+                width=17,
+            )
+            resize_combo.grid(row=0, column=1, padx=(8, 12))
+            resize_combo.bind("<<ComboboxSelected>>", self._on_resize_mode_changed)
+            self.interactive_widgets.append(resize_combo)
+
+            self.resize_width_entry = ttk.Entry(
+                resize_row, textvariable=self.resize_width_var, width=7, state="disabled"
+            )
+            self.resize_width_entry.grid(row=0, column=2)
+            ttk.Label(resize_row, text="×", style="Setting.TLabel").grid(
+                row=0, column=3, padx=6
+            )
+            self.resize_height_entry = ttk.Entry(
+                resize_row, textvariable=self.resize_height_var, width=7, state="disabled"
+            )
+            self.resize_height_entry.grid(row=0, column=4)
+            ttk.Label(resize_row, text="px", style="Setting.TLabel").grid(
+                row=0, column=5, sticky="w", padx=(6, 12)
+            )
+            self.keep_aspect_check = ttk.Checkbutton(
+                resize_row,
+                text="Сохранять пропорции",
+                variable=self.keep_aspect_var,
+                state="disabled",
+                style="Setting.TCheckbutton",
+            )
+            self.keep_aspect_check.grid(row=0, column=6, sticky="e")
+            self.interactive_widgets.extend(
+                [self.resize_width_entry, self.resize_height_entry, self.keep_aspect_check]
+            )
+
         def _build_trim_tab(self) -> None:
             self.trim_tab.columnconfigure(1, weight=1)
 
-            ttk.Label(self.trim_tab, text="Начало:").grid(row=0, column=0, sticky="w", pady=(0, 8))
+            ttk.Label(self.trim_tab, text="Начало:", style="Setting.TLabel").grid(
+                row=0, column=0, sticky="w", pady=(0, 8)
+            )
             start_scale = ttk.Scale(
                 self.trim_tab,
                 from_=0,
@@ -1412,7 +1589,9 @@ if tk is not None and ttk is not None and filedialog is not None and messagebox 
             start_entry.bind("<Return>", self._on_trim_entry_changed)
             self.interactive_widgets.append(start_entry)
 
-            ttk.Label(self.trim_tab, text="Конец:").grid(row=1, column=0, sticky="w", pady=(0, 8))
+            ttk.Label(self.trim_tab, text="Конец:", style="Setting.TLabel").grid(
+                row=1, column=0, sticky="w", pady=(0, 8)
+            )
             end_scale = ttk.Scale(
                 self.trim_tab,
                 from_=0,
@@ -1433,19 +1612,19 @@ if tk is not None and ttk is not None and filedialog is not None and messagebox 
             ttk.Label(
                 self.trim_tab,
                 textvariable=self.trim_duration_var,
-                style="Value.TLabel",
+                style="SettingValue.TLabel",
             ).grid(row=2, column=0, sticky="w", pady=(6, 0))
 
             ttk.Label(
                 self.trim_tab,
                 textvariable=self.trim_selection_duration_var,
-                style="Value.TLabel",
+                style="SettingValue.TLabel",
             ).grid(row=2, column=1, columnspan=2, sticky="e", pady=(6, 0))
 
             ttk.Label(
                 self.trim_tab,
                 text="Двигайте ползунки для быстрой обрезки. Поля справа можно использовать для точного значения в секундах.",
-                style="Hint.TLabel",
+                style="SettingHint.TLabel",
                 wraplength=760,
                 justify="left",
             ).grid(row=3, column=0, columnspan=3, sticky="w", pady=(8, 0))
@@ -1455,7 +1634,7 @@ if tk is not None and ttk is not None and filedialog is not None and messagebox 
             ttk.Label(
                 self.retro_tab,
                 text="ШАКАЛЬНАЯ ЗАПИСЬ РАБОЧЕГО СТОЛА",
-                style="ProfileTitle.TLabel",
+                style="SettingTitle.TLabel",
             ).grid(row=0, column=0, sticky="w")
             ttk.Label(
                 self.retro_tab,
@@ -1463,13 +1642,72 @@ if tk is not None and ttk is not None and filedialog is not None and messagebox 
                     "Центральный квадрат 480×480 · 12 FPS · звук +20% · "
                     "watermark www.Bandicam.com"
                 ),
-                style="Hint.TLabel",
+                style="SettingHint.TLabel",
                 wraplength=720,
                 justify="left",
             ).grid(row=1, column=0, sticky="w", pady=(8, 0))
 
+        def _build_gif_tab(self) -> None:
+            self.gif_tab.columnconfigure(3, weight=1)
+            fields = (
+                ("Размер:", self.gif_size_var, ("Исходный", "720 px", "480 px", "320 px")),
+                ("FPS:", self.gif_fps_var, ("20", "15", "12", "10", "8")),
+                ("Цвета:", self.gif_colors_var, ("256", "128", "96", "64", "32")),
+                ("Формат:", self.gif_output_format_var, ("GIF", "MP4")),
+            )
+            for index, (label, variable, values) in enumerate(fields):
+                row = index // 2
+                column = (index % 2) * 2
+                ttk.Label(self.gif_tab, text=label, style="Setting.TLabel").grid(
+                    row=row,
+                    column=column,
+                    sticky="w",
+                    padx=(0 if column == 0 else 18, 5),
+                    pady=(0 if row == 0 else 8, 0),
+                )
+                combo = ttk.Combobox(
+                    self.gif_tab,
+                    textvariable=variable,
+                    values=values,
+                    state="readonly",
+                    width=10,
+                )
+                combo.grid(
+                    row=row,
+                    column=column + 1,
+                    sticky="w",
+                    pady=(0 if row == 0 else 8, 0),
+                )
+                combo.bind("<<ComboboxSelected>>", self._on_gif_setting_changed)
+                self.interactive_widgets.append(combo)
+
+            ttk.Label(self.gif_tab, text="Целевой вес:", style="Setting.TLabel").grid(
+                row=2, column=0, sticky="w", pady=(8, 0)
+            )
+            target_entry = ttk.Entry(
+                self.gif_tab, textvariable=self.gif_target_mb_var, width=10
+            )
+            target_entry.grid(row=2, column=1, sticky="w", pady=(8, 0))
+            self.interactive_widgets.append(target_entry)
+            ttk.Label(
+                self.gif_tab,
+                text="МБ (необязательно). Приложение постепенно снизит FPS и число цветов.",
+                style="SettingHint.TLabel",
+            ).grid(row=2, column=2, columnspan=2, sticky="w", padx=(8, 0), pady=(8, 0))
+
+        def _on_gif_setting_changed(self, _event: object | None = None) -> None:
+            if self._active_mode() == "gif":
+                self._update_auto_output_path(force=True)
+
         def _on_profile_changed(self, _event: object | None = None) -> None:
             self._refresh_profile_state()
+
+        def _on_resize_mode_changed(self, _event: object | None = None) -> None:
+            manual = self.resize_mode_var.get() == "Задать вручную"
+            state = "normal" if manual and not self.is_busy else "disabled"
+            self.resize_width_entry.configure(state=state)
+            self.resize_height_entry.configure(state=state)
+            self.keep_aspect_check.configure(state=state)
 
         def _refresh_profile_state(self) -> None:
             selected_title = self.profile_var.get()
@@ -1544,12 +1782,15 @@ if tk is not None and ttk is not None and filedialog is not None and messagebox 
 
         def _select_operation_mode(self, mode: str, *, refresh_output: bool = True) -> None:
             self.operation_mode_var.set(mode)
-            target_frame = {
+            mode_frames = {
                 "compress": self.compress_tab,
                 "trim": self.trim_tab,
                 "retro": self.retro_tab,
-            }[mode]
-            target_frame.tkraise()
+                "gif": self.gif_tab,
+            }
+            for frame in mode_frames.values():
+                frame.grid_remove()
+            mode_frames[mode].grid(row=0, column=0, sticky="ew")
 
             for button_mode, button in self.mode_buttons.items():
                 button.configure(
@@ -1566,6 +1807,8 @@ if tk is not None and ttk is not None and filedialog is not None and messagebox 
                 self.run_button.configure(text="СЖАТЬ ВИДЕО")
             elif mode == "trim":
                 self.run_button.configure(text="ОБРЕЗАТЬ ВИДЕО")
+            elif mode == "gif":
+                self.run_button.configure(text="ОПТИМИЗИРОВАТЬ GIF")
             else:
                 self.run_button.configure(text="СДЕЛАТЬ КВАДРАТ ИЗ 2000-Х")
 
@@ -1597,6 +1840,8 @@ if tk is not None and ttk is not None and filedialog is not None and messagebox 
                 f"{self.selected_input.name} | {format_size(self.selected_input.stat().st_size)}{duration_text}"
             )
             self._set_trim_duration(duration)
+            if self.selected_input.suffix.lower() == ".gif":
+                self._select_operation_mode("gif", refresh_output=False)
             self.last_output_path = None
             self.open_folder_button.configure(state="disabled")
             self._update_auto_output_path(force=True)
@@ -1610,8 +1855,18 @@ if tk is not None and ttk is not None and filedialog is not None and messagebox 
                 "compress": "compressed",
                 "trim": "trimmed",
                 "retro": "square_2000s",
+                "gif": "optimized",
             }[self._active_mode()]
-            suggested = str(resolve_output_path(self.selected_input, None, suffix))
+            output_suffix = (
+                ".mp4"
+                if self._active_mode() == "gif" and self.gif_output_format_var.get() == "MP4"
+                else None
+            )
+            suggested = str(
+                resolve_output_path(
+                    self.selected_input, None, suffix, output_suffix=output_suffix
+                )
+            )
             current = self.output_path_var.get().strip()
 
             if force or not current or current == self.auto_output_path:
@@ -1631,6 +1886,9 @@ if tk is not None and ttk is not None and filedialog is not None and messagebox 
                 initial_file = Path(self.output_path_var.get() or self.auto_output_path or "").name
                 initial_dir = str(self.selected_input.parent)
 
+            gif_as_mp4 = (
+                self._active_mode() == "gif" and self.gif_output_format_var.get() == "MP4"
+            )
             output_path = filedialog.asksaveasfilename(
                 parent=self.root,
                 title="Куда сохранить результат",
@@ -1638,12 +1896,14 @@ if tk is not None and ttk is not None and filedialog is not None and messagebox 
                     [("GIF", "*.gif"), ("Все файлы", "*.*")]
                     if self.selected_input is not None
                     and self.selected_input.suffix.lower() == ".gif"
+                    and not gif_as_mp4
                     else [("MP4", "*.mp4"), ("Все файлы", "*.*")]
                 ),
                 defaultextension=(
                     ".gif"
                     if self.selected_input is not None
                     and self.selected_input.suffix.lower() == ".gif"
+                    and not gif_as_mp4
                     else ".mp4"
                 ),
                 initialdir=initial_dir,
@@ -1664,6 +1924,18 @@ if tk is not None and ttk is not None and filedialog is not None and messagebox 
                 raise ValueError(f"Поле '{field_name}' не может быть отрицательным.")
             return value
 
+        def _parse_optional_dimension(self, raw_value: str, field_name: str) -> int | None:
+            value_text = raw_value.strip()
+            if not value_text:
+                return None
+            try:
+                value = int(value_text)
+            except ValueError as exc:
+                raise ValueError(f"Поле '{field_name}' должно быть целым числом.") from exc
+            if value <= 0:
+                raise ValueError(f"Поле '{field_name}' должно быть больше нуля.") from None
+            return value
+
         def _resolve_output_for_ui(self) -> Path | None:
             raw_value = self.output_path_var.get().strip().strip('"')
             if not raw_value:
@@ -1675,17 +1947,39 @@ if tk is not None and ttk is not None and filedialog is not None and messagebox 
         def _build_compress_args(self) -> argparse.Namespace:
             if self.selected_input is None:
                 raise ValueError("Сначала выберите видеофайл.")
+            if (
+                self._active_mode() == "compress"
+                and self.selected_input.suffix.lower() == ".gif"
+            ):
+                self._select_operation_mode("gif")
+                raise ValueError("GIF обрабатываются в отдельном режиме «Оптимизировать GIF».")
 
             if self._active_mode() == "retro":
                 profile = next(profile for profile in COMPRESSION_PROFILES if profile.retro_square)
             else:
                 profile = COMPRESSION_PROFILE_BY_TITLE[self.profile_var.get()]
+
+            width = profile.width
+            height = None
+            keep_aspect = True
+            if self._active_mode() == "compress" and self.resize_mode_var.get() == "Задать вручную":
+                width = self._parse_optional_dimension(self.resize_width_var.get(), "Ширина")
+                height = self._parse_optional_dimension(self.resize_height_var.get(), "Высота")
+                if width is None and height is None:
+                    raise ValueError("Укажите ширину или высоту итогового файла.")
+                keep_aspect = self.keep_aspect_var.get()
+                if not keep_aspect and (width is None or height is None):
+                    raise ValueError(
+                        "Для растягивания без сохранения пропорций укажите и ширину, и высоту."
+                    )
             return argparse.Namespace(
                 input=self.selected_input,
                 output=self._resolve_output_for_ui(),
                 crf=profile.crf,
                 preset=profile.preset,
-                width=profile.width,
+                width=width,
+                height=height,
+                keep_aspect=keep_aspect,
                 audio_bitrate=profile.audio_bitrate,
                 no_audio=profile.no_audio,
                 retro_square=profile.retro_square,
@@ -1706,12 +2000,51 @@ if tk is not None and ttk is not None and filedialog is not None and messagebox 
                 end=end,
             )
 
+        def _build_gif_args(self) -> argparse.Namespace:
+            if self.selected_input is None:
+                raise ValueError("Сначала выберите GIF-файл.")
+            if self.selected_input.suffix.lower() != ".gif":
+                raise ValueError("Для этого режима выберите файл в формате GIF.")
+
+            size_text = self.gif_size_var.get()
+            width = None if size_text == "Исходный" else int(size_text.split()[0])
+            target_text = self.gif_target_mb_var.get().strip().replace(",", ".")
+            target_size_mb = None
+            if target_text:
+                try:
+                    target_size_mb = float(target_text)
+                except ValueError as exc:
+                    raise ValueError("Целевой вес должен быть числом в мегабайтах.") from exc
+                if target_size_mb <= 0:
+                    raise ValueError("Целевой вес должен быть больше нуля.")
+
+            return argparse.Namespace(
+                input=self.selected_input,
+                output=self._resolve_output_for_ui(),
+                crf=24,
+                preset="medium",
+                width=width,
+                height=None,
+                keep_aspect=True,
+                audio_bitrate="96k",
+                no_audio=False,
+                retro_square=False,
+                gif_fps=int(self.gif_fps_var.get()),
+                gif_colors=int(self.gif_colors_var.get()),
+                gif_output_format=self.gif_output_format_var.get(),
+                target_size_mb=target_size_mb,
+            )
+
         def start_operation(self) -> None:
             if self.worker_thread and self.worker_thread.is_alive():
                 return
 
             try:
-                if self._active_mode() in {"compress", "retro"}:
+                if self._active_mode() == "gif":
+                    args = self._build_gif_args()
+                    handler = process_optimize_gif
+                    start_message = "Запущена оптимизация GIF..."
+                elif self._active_mode() in {"compress", "retro"}:
                     args = self._build_compress_args()
                     handler = process_compress
                     start_message = (
@@ -1781,6 +2114,8 @@ if tk is not None and ttk is not None and filedialog is not None and messagebox 
                     widget.configure(state="disabled" if busy else "readonly")
                 else:
                     widget.configure(state="disabled" if busy else "normal")
+            if not busy:
+                self._on_resize_mode_changed()
 
             if busy:
                 self.open_folder_button.configure(state="disabled")
